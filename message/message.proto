@@ -1,0 +1,40 @@
+package message;
+
+message SynMessage {
+	required string id      = 1;
+	required string origin  = 2;
+	repeated digest digests = 3;
+}
+
+message AckMessage {
+	required string id      = 1;
+	required string origin  = 2;
+	repeated digest digests = 3;
+	repeated delta  deltas  = 4;
+}
+
+message Ack2Message {
+	required string id     = 1;
+	required string origin = 2;
+	repeated delta  deltas = 3;
+}
+
+message digest {
+	required string id      = 1;
+	required int64  gen     = 2;
+	required int64  version = 3;
+}
+
+message delta {
+	required string id        = 1;
+	required int64  gen       = 2;
+	required int64  version   = 3;
+	required int64  heartbeat = 4;
+	repeated value  values    = 5;
+}
+
+message value {
+	required string key     = 1;
+	required string value   = 2;
+	required int64  version = 3;
+}
