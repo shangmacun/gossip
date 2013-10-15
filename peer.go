@@ -14,6 +14,7 @@ type versionedValue struct {
 
 type Peer struct {
 	mutex     sync.RWMutex
+	gossiper  *Gossiper
 	id        string
 	origin    string
 	gen       int64
@@ -24,13 +25,13 @@ type Peer struct {
 	addr      *net.TCPAddr
 	detector  *detector
 	deadTime  time.Time
-	events    chan interface{}
 	alive     bool
 	leave     bool
 }
 
-func newPeer(id, origin string, gen int64, addr *net.TCPAddr, events chan interface{}, local bool) *Peer {
+func newPeer(gossiper *Gossiper, id, origin string, gen int64, addr *net.TCPAddr, local bool) *Peer {
 	return &Peer{
+		gossiper: gossiper,
 		id:       id,
 		origin:   origin,
 		gen:      gen,
@@ -38,10 +39,13 @@ func newPeer(id, origin string, gen int64, addr *net.TCPAddr, events chan interf
 		addr:     addr,
 		detector: newDetector(interval),
 		values:   make(map[string]*versionedValue),
-		events:   events,
 		alive:    true,
 		leave:    false,
 	}
+}
+
+func (p *Peer) Gossiper() *Gossiper {
+	return p.gossiper
 }
 
 func (p *Peer) Id() string {
@@ -60,6 +64,10 @@ func (p *Peer) Local() bool {
 	return p.local
 }
 
+func (p *Peer) Alive() bool {
+	return p.alive
+}
+
 func (p *Peer) Set(key, value string) error {
 	if !p.local {
 		return fmt.Errorf("peer '%s' is a remote readonly peer.", p.id)
@@ -75,7 +83,7 @@ func (p *Peer) Set(key, value string) error {
 	p.version++
 	p.values[key] = &versionedValue{value: value, version: p.version}
 
-	p.events <- &updateEvent{
+	p.gossiper.events <- &updateEvent{
 		peer:  p,
 		key:   key,
 		value: value,
@@ -141,7 +149,7 @@ func (p *Peer) updateHeartBeat(heartbeat int64, gen int64) {
 	if !p.alive && !p.leave {
 		p.alive = true
 		p.deadTime = time.Time{}
-		p.events <- &aliveEvent{
+		p.gossiper.events <- &aliveEvent{
 			peer: p,
 		}
 	}
@@ -154,7 +162,7 @@ func (p *Peer) updateValue(key, value string, version int64) {
 	if version > p.version {
 		p.values[key] = &versionedValue{value: value, version: version}
 		p.version = version
-		p.events <- &updateEvent{
+		p.gossiper.events <- &updateEvent{
 			peer:  p,
 			key:   key,
 			value: value,
@@ -186,7 +194,7 @@ func (p *Peer) restart(gen int64) {
 	p.detector.reset()
 	p.values = make(map[string]*versionedValue)
 
-	p.events <- &restartEvent{
+	p.gossiper.events <- &restartEvent{
 		peer: p,
 	}
 }
@@ -204,13 +212,13 @@ func (p *Peer) suspect(phi float64, timeout time.Duration) bool {
 		if p.alive {
 			p.alive = false
 			p.deadTime = time.Now()
-			p.events <- &deadEvent{
+			p.gossiper.events <- &deadEvent{
 				peer: p,
 			}
 		} else {
 			if now.Sub(p.deadTime) > timeout {
 				p.leave = true
-				p.events <- &leaveEvent{
+				p.gossiper.events <- &leaveEvent{
 					peer: p,
 				}
 				return false
@@ -218,10 +226,12 @@ func (p *Peer) suspect(phi float64, timeout time.Duration) bool {
 		}
 
 		return true
-	} else if !p.alive {
+	}
+
+	if !p.alive {
 		p.alive = true
 		p.deadTime = time.Time{}
-		p.events <- &aliveEvent{
+		p.gossiper.events <- &aliveEvent{
 			peer: p,
 		}
 	}
@@ -236,7 +246,7 @@ func (p *Peer) makeAlive() {
 	if !p.alive && !p.leave {
 		p.alive = true
 		p.deadTime = time.Time{}
-		p.events <- &aliveEvent{
+		p.gossiper.events <- &aliveEvent{
 			peer: p,
 		}
 	}
@@ -249,7 +259,7 @@ func (p *Peer) makeDead() {
 	if p.alive && !p.leave {
 		p.alive = false
 		p.deadTime = time.Now()
-		p.events <- &deadEvent{
+		p.gossiper.events <- &deadEvent{
 			peer: p,
 		}
 	}
@@ -263,7 +273,7 @@ func (p *Peer) makeLeave() {
 		p.alive = false
 		p.leave = true
 
-		p.events <- &leaveEvent{
+		p.gossiper.events <- &leaveEvent{
 			peer: p,
 		}
 	}

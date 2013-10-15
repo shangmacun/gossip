@@ -69,7 +69,7 @@ func (g *Gossiper) updateDeltas(deltas []*Delta) {
 				g.logger.Printf("gossiper remote update error: invalid remote id '%s'", d.GetId())
 				continue
 			}
-			np := newPeer(d.GetId(), g.origin, d.GetGen(), addr, g.events, false)
+			np := newPeer(g, d.GetId(), g.origin, d.GetGen(), addr, false)
 			p = np
 
 			g.peers[d.GetId()] = np

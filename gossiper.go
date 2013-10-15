@@ -14,6 +14,7 @@ import (
 
 var (
 	interval time.Duration = time.Second
+	timeout                = 5 * time.Second
 )
 
 type Gossiper struct {
@@ -22,14 +23,14 @@ type Gossiper struct {
 	origin    string
 	gen       int64
 	peer      *Peer
-	seeds     map[string]*net.TCPAddr
 	peers     map[string]*Peer
+	seeds     map[string]*net.TCPAddr
+	ln        net.Listener
+	ticker    *time.Ticker
+	events    chan event
 	listeners []Listener
 	phi       float64
 	timeout   time.Duration
-	ln        net.Listener
-	ticker    *time.Ticker
-	events    chan interface{}
 	rand      *rand.Rand
 	logger    *log.Logger
 	started   bool
@@ -41,12 +42,12 @@ func New(id, origin string, gen int64, seeds []string) *Gossiper {
 		id:        id,
 		origin:    origin,
 		gen:       gen,
-		seeds:     make(map[string]*net.TCPAddr),
 		peers:     make(map[string]*Peer),
-		events:    make(chan interface{}, 1024),
+		seeds:     make(map[string]*net.TCPAddr),
+		events:    make(chan event, 1024),
 		listeners: make([]Listener, 0),
 		phi:       8,
-		timeout:   5 * time.Second,
+		timeout:   timeout,
 		rand:      rand.New(rand.NewSource(time.Now().UnixNano())),
 		started:   false,
 		stoped:    false,
@@ -82,7 +83,7 @@ func (g *Gossiper) Start() error {
 		return err
 	}
 
-	g.peer = newPeer(g.id, g.origin, g.gen, laddr, g.events, true)
+	g.peer = newPeer(g, g.id, g.origin, g.gen, laddr, true)
 	g.peers[g.id] = g.peer
 
 	ln, err := net.ListenTCP("tcp", laddr)
@@ -93,7 +94,7 @@ func (g *Gossiper) Start() error {
 
 	g.ticker = time.NewTicker(interval)
 	if g.logger == nil {
-		g.logger = log.New(&NopWriter{}, "", 0)
+		g.logger = log.New(&discard{}, "", 0)
 	}
 
 	go g.serve()
@@ -102,7 +103,9 @@ func (g *Gossiper) Start() error {
 
 	g.started = true
 
-	g.events <- &startEvent{}
+	g.events <- &startEvent{
+		gossiper: g,
+	}
 	g.events <- &joinEvent{
 		peer: g.peer,
 	}
@@ -130,9 +133,11 @@ func (g *Gossiper) Stop() error {
 func (g *Gossiper) stop() {
 	g.stoped = true
 	g.peer.makeLeave()
-	g.ln.Close()
 	g.ticker.Stop()
-	g.events <- &stopEvent{}
+	g.ln.Close()
+	g.events <- &stopEvent{
+		gossiper: g,
+	}
 	close(g.events)
 }
 
@@ -164,7 +169,7 @@ func (g *Gossiper) serve() {
 				time.Sleep(delay)
 				continue
 			}
-			g.error(fmt.Errorf("listener accept error: %s\n", err))
+			g.error(fmt.Errorf("gossiper accept error: %s\n", err))
 			return
 		}
 		go g.readMessage(conn)
@@ -426,7 +431,7 @@ func (g *Gossiper) SetLogger(logger *log.Logger) {
 	defer g.mutex.Unlock()
 
 	if logger == nil {
-		g.logger = log.New(&NopWriter{}, "", 0)
+		g.logger = log.New(&discard{}, "", 0)
 	} else {
 		g.logger = logger
 	}
@@ -440,9 +445,9 @@ func resolve(id string) (*net.TCPAddr, error) {
 	}
 }
 
-type NopWriter struct {
+type discard struct {
 }
 
-func (nw *NopWriter) Write(p []byte) (n int, err error) {
+func (d *discard) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }

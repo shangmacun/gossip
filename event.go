@@ -23,75 +23,12 @@ func (g *Gossiper) RemoveListener(ln Listener) {
 }
 
 func (g *Gossiper) handleEvent() {
-	listeners := g.listeners
-	for v := range g.events {
-		switch e := v.(type) {
-		case *startEvent:
-			for _, ln := range listeners {
-				ln.OnStart(g)
-			}
-		case *stopEvent:
-			for _, ln := range listeners {
-				ln.OnStop(g)
-			}
-		case *joinEvent:
-			for _, ln := range listeners {
-				ln.OnJoin(e.peer)
-			}
-		case *updateEvent:
-			for _, ln := range listeners {
-				ln.OnUpdate(e.peer, e.key, e.value)
-			}
-		case *aliveEvent:
-			for _, ln := range listeners {
-				ln.OnAlive(e.peer)
-			}
-		case *deadEvent:
-			for _, ln := range listeners {
-				ln.OnDead(e.peer)
-			}
-		case *restartEvent:
-			for _, ln := range listeners {
-				ln.OnRestart(e.peer)
-			}
-		case *leaveEvent:
-			for _, ln := range listeners {
-				ln.OnLeave(e.peer)
-			}
+	for e := range g.events {
+		listeners := g.listeners
+		for _, ln := range listeners {
+			e.visit(ln)
 		}
 	}
-}
-
-type startEvent struct {
-}
-
-type stopEvent struct {
-}
-
-type joinEvent struct {
-	peer *Peer
-}
-
-type aliveEvent struct {
-	peer *Peer
-}
-
-type deadEvent struct {
-	peer *Peer
-}
-
-type restartEvent struct {
-	peer *Peer
-}
-
-type leaveEvent struct {
-	peer *Peer
-}
-
-type updateEvent struct {
-	peer  *Peer
-	key   string
-	value string
 }
 
 type Listener interface {
@@ -105,14 +42,84 @@ type Listener interface {
 	OnLeave(p *Peer)
 }
 
-type NoOpListener struct {
+type event interface {
+	visit(ln Listener)
 }
 
-func (l *NoOpListener) OnStart(g *Gossiper)           {}
-func (l *NoOpListener) OnStop(g *Gossiper)            {}
-func (l *NoOpListener) OnJoin(p *Peer)                {}
-func (l *NoOpListener) OnUpdate(p *Peer, k, v string) {}
-func (l *NoOpListener) OnAlive(p *Peer)               {}
-func (l *NoOpListener) OnDead(p *Peer)                {}
-func (l *NoOpListener) OnRestart(p *Peer)             {}
-func (l *NoOpListener) OnLeave(p *Peer)               {}
+type startEvent struct {
+	gossiper *Gossiper
+}
+
+func (e *startEvent) visit(ln Listener) {
+	ln.OnStart(e.gossiper)
+}
+
+type stopEvent struct {
+	gossiper *Gossiper
+}
+
+func (e *stopEvent) visit(ln Listener) {
+	ln.OnStop(e.gossiper)
+}
+
+type joinEvent struct {
+	peer *Peer
+}
+
+func (e *joinEvent) visit(ln Listener) {
+	ln.OnJoin(e.peer)
+}
+
+type aliveEvent struct {
+	peer *Peer
+}
+
+func (e *aliveEvent) visit(ln Listener) {
+	ln.OnAlive(e.peer)
+}
+
+type deadEvent struct {
+	peer *Peer
+}
+
+func (e *deadEvent) visit(ln Listener) {
+	ln.OnDead(e.peer)
+}
+
+type restartEvent struct {
+	peer *Peer
+}
+
+func (e *restartEvent) visit(ln Listener) {
+	ln.OnRestart(e.peer)
+}
+
+type leaveEvent struct {
+	peer *Peer
+}
+
+func (e leaveEvent) visit(ln Listener) {
+	ln.OnLeave(e.peer)
+}
+
+type updateEvent struct {
+	peer  *Peer
+	key   string
+	value string
+}
+
+func (e *updateEvent) visit(ln Listener) {
+	ln.OnUpdate(e.peer, e.key, e.value)
+}
+
+type DefaultListener struct {
+}
+
+func (l *DefaultListener) OnStart(g *Gossiper)           {}
+func (l *DefaultListener) OnStop(g *Gossiper)            {}
+func (l *DefaultListener) OnJoin(p *Peer)                {}
+func (l *DefaultListener) OnUpdate(p *Peer, k, v string) {}
+func (l *DefaultListener) OnAlive(p *Peer)               {}
+func (l *DefaultListener) OnDead(p *Peer)                {}
+func (l *DefaultListener) OnRestart(p *Peer)             {}
+func (l *DefaultListener) OnLeave(p *Peer)               {}
